@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 // รองรับการใช้ .env เมื่อขึ้น Production (ถ้าไม่มีจะใช้ localhost)
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
+const API_BASE = import.meta.env.VITE_API_URL || "https://truewallet-1591.onrender.com";
 
 const BANKS = [
     { code: 'KBANK', name: 'กสิกรไทย' }, { code: 'SCB', name: 'ไทยพาณิชย์' },
