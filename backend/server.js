@@ -1,14 +1,74 @@
 import express from 'express';
 import cors from 'cors';
+import mongoose from 'mongoose'; // เปลี่ยนจากการใช้ fs เป็น mongoose
 import TMNOne from './TMNOne.js';
 
 const app = express();
 // อนุญาตให้ Frontend เรียกใช้ API ได้
 app.use(cors());
 app.use(express.json());
+app.use(cors({
+  origin: ['https://truewallet-eight.vercel.app/', 'http://localhost:5173'], // ใส่ URL ของ Vercel คุณที่นี่
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+// --- เชื่อมต่อ MongoDB ---
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nawinwin88_db_user:nawinwin46@cluster0.alvzybp.mongodb.net/wallet_db?retryWrites=true&w=majority";
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('📦 เชื่อมต่อ MongoDB สำเร็จ!'))
+  .catch(err => console.error('❌ เชื่อมต่อ MongoDB ไม่สำเร็จ:', err));
+
+// สร้างโครงสร้าง (Schema) สำหรับเก็บข้อมูล Login
+const sessionSchema = new mongoose.Schema({
+    tmn_key_id: String,
+    mobile_number: String,
+    login_token: String,
+    pin: String,
+    tmn_id: String,
+    device_id: String
+});
+const SessionDB = mongoose.model('Session', sessionSchema);
 
 const instance = new TMNOne();
 let isConfigured = false; // ตัวแปรเช็คสถานะว่า Login หรือยัง
+
+// --- ฟังก์ชันกู้คืนเซสชัน (Auto Login เมื่อ Server เปิด) ---
+const restoreSession = async () => {
+    try {
+        const config = await SessionDB.findOne(); // ดึงจาก Database แทนไฟล์
+        
+        if (config) {
+            console.log("♻️ พบข้อมูลเซสชันใน Database กำลังกู้คืนการเข้าสู่ระบบ...");
+            
+            instance.setData(
+                config.tmn_key_id, 
+                config.mobile_number, 
+                config.login_token, 
+                config.tmn_id,
+                config.device_id
+            );
+
+            const login = await instance.loginWithPin6(config.pin);
+            if (login && !login.error) {
+                instance.current_pin = config.pin;
+                isConfigured = true;
+                console.log("✅ กู้คืนเซสชันสำเร็จ! ระบบพร้อมใช้งานทันที");
+            } else {
+                console.log("⚠️ กู้คืนเซสชันไม่สำเร็จ: ข้อมูลอาจไม่ถูกต้อง หรือ Token หมดอายุแล้ว");
+            }
+        } else {
+            console.log("ℹ️ ไม่พบข้อมูลเซสชันใน Database");
+        }
+    } catch (err) {
+        console.error("⚠️ เกิดข้อผิดพลาดในการกู้คืนเซสชัน:", err.message);
+    }
+};
+
+// เรียกใช้งานกู้คืนเซสชัน โดยหน่วงเวลา 2 วินาทีรอให้ Database เชื่อมต่อเสร็จ
+setTimeout(restoreSession, 2000);
 
 // --- 1. ระบบ Login (ตั้งค่า Instance) ---
 app.post('/api/login', async (req, res) => {
@@ -37,7 +97,10 @@ app.post('/api/login', async (req, res) => {
         instance.current_pin = config.pin; 
         isConfigured = true;
 
-        console.log("✅ ระบบ Wallet พร้อมทำงาน!");
+        // บันทึกข้อมูลการล็อกอินลง Database (อัปเดตทับข้อมูลเก่าหรือสร้างใหม่)
+        await SessionDB.findOneAndUpdate({}, config, { upsert: true, new: true });
+
+        console.log("✅ ระบบ Wallet พร้อมทำงาน และบันทึก Session ลง Database แล้ว!");
         res.json({ success: true, message: "เข้าสู่ระบบสำเร็จ" });
     } catch (error) {
         console.error("❌ Login Error:", error.message);
